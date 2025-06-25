@@ -1,0 +1,13 @@
+server/medical_app/pegasus/
+server/downloads/
+server/medical_app/pegasus/__pycache__/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+env/
+venv/
+*.sqlite3
+downloads/
+.vscode/
+.idea/

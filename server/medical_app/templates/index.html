@@ -1,0 +1,138 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Medical Record Summarizer</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="{% static 'styles.css' %}">
+</head>
+    <!-- Background Ripple Effect -->
+    <div id="ripple-bg" class="fixed inset-0 pointer-events-none z-0"></div>
+
+    <div class="container mx-auto px-4 py-8 max-w-4xl relative z-10">
+        <!-- Header -->
+        <header class="mb-8 text-center">
+            <h1 class="text-5xl font-extrabold text-gray-800 animate-gradient-text">Medical Summary Generator</h1>
+            <p class="text-gray-600 mt-3 text-lg animate-fade-in">Securely upload or input medical reports for concise, professional summaries</p>
+        </header>
+
+        <!-- Error Message -->
+        {% if error %}
+            <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-6 rounded-lg animate-slide-in backdrop-blur-sm bg-opacity-80">
+                <p>{{ error }}</p>
+            </div>
+        {% endif %}
+
+        <!-- Form -->
+        <section class="bg-white bg-opacity-90 backdrop-blur-md shadow-2xl rounded-xl p-8 mb-8 relative">
+            <!-- Loading Overlay -->
+            <div id="loading-overlay" class="hidden absolute inset-0 bg-white bg-opacity-80 backdrop-blur-sm flex flex-col items-center justify-center z-20">
+                <div class="dotted-loader">
+                    <div class="dot dot1"></div>
+                    <div class="dot dot2"></div>
+                    <div class="dot dot3"></div>
+                </div>
+                <div class="progress-bar mt-4 w-3/4 h-2 bg-gray-200 rounded-full overflow-hidden">
+                    <div class="progress bg-blue-600 h-full animate-progress"></div>
+                </div>
+                <p class="text-gray-600 mt-2 text-sm">Processing...</p>
+            </div>
+
+            <!-- Input Method Toggle -->
+            <div class="flex justify-center mb-6">
+                <input type="radio" name="input-method" id="upload-radio" class="hidden" checked>
+                <label for="upload-radio" class="toggle-btn px-5 py-3 mx-2 bg-blue-600 text-white rounded-lg font-semibold cursor-pointer transition-all duration-300 transform hover:scale-110 hover:shadow-glow">Upload Document</label>
+                <input type="radio" name="input-method" id="text-radio" class="hidden">
+                <label for="text-radio" class="toggle-btn px-5 py-3 mx-2 bg-gray-200 text-gray-700 rounded-lg font-semibold cursor-pointer transition-all duration-300 transform hover:scale-110 hover:shadow-glow">Type History</label>
+            </div>
+
+            <form id="summary-form" method="POST" enctype="multipart/form-data" class="space-y-6" onsubmit="document.getElementById('loading-overlay').classList.remove('hidden')">
+                {% csrf_token %}
+                <div>
+                    <label for="patient_name" class="block text-sm font-medium text-gray-700">Patient Name</label>
+                    <input type="text" name="patient_name" id="patient_name" required 
+                           class="mt-1 block w-full border-gray-300 rounded-lg shadow-sm focus:ring-blue-400 focus:border-blue-400 sm:text-sm p-4 transition-all duration-300 hover:shadow-glow hover:scale-101 focus:scale-101 bg-white bg-opacity-50 backdrop-blur-sm">
+                </div>
+
+                <div id="upload-section" class="input-section">
+                    <label for="report_file" class="block text-sm font-medium text-gray-700">Upload PDF or Word File</label>
+                    <input type="file" name="report_file" id="report_file" accept=".pdf,.docx" 
+                           class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-3 file:px-5 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-100 file:text-blue-700 hover:file:bg-blue-200 transition-all duration-300 hover:shadow-glow bg-white bg-opacity-50 backdrop-blur-sm">
+                </div>
+
+                <div id="text-section" class="input-section hidden">
+                    <label for="report_text" class="block text-sm font-medium text-gray-700">Medical Report Text</label>
+                    <textarea name="report_text" id="report_text" rows="5" placeholder="Enter medical history..." 
+                              class="mt-1 block w-full border-gray-300 rounded-lg shadow-sm focus:ring-blue-400 focus:border-blue-400 sm:text-sm p-4 transition-all duration-300 hover:shadow-glow hover:scale-101 focus:scale-101 bg-white bg-opacity-50 backdrop-blur-sm"></textarea>
+                </div>
+
+                <div class="text-center">
+                    <button type="submit" class="inline-flex items-center px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2 transition-all duration-300 transform hover:scale-110 hover:rotate-2 hover:shadow-glow">Generate Summary</button>
+                </div>
+            </form>
+        </section>
+
+        <!-- Summarized Records -->
+        <section>
+            <h2 class="text-3xl font-semibold text-gray-800 mb-6 animate-slide-in">Summarized Records</h2>
+            {% if records %}
+                <div class="space-y-6">
+                    {% for record in records %}
+                        <div class="record bg-white bg-opacity-90 backdrop-blur-md shadow-lg rounded-xl p-6 transition-all duration-300 hover:shadow-2xl hover:-translate-y-2 hover:scale-102">
+                            <div class="flex justify-between items-center mb-4">
+                                <h3 class="text-lg font-medium text-gray-800">{{ record.patient_name }} — {{ record.uploaded_at|date:"Y-m-d H:i" }}</h3>
+                                <a href="{% url 'download_markdown' record.id %}" class="text-blue-600 hover:text-blue-800 text-sm font-medium transition-colors duration-300 hover:underline hover:scale-105">Download Markdown</a>
+                            </div>
+                            <div class="bg-gray-50 bg-opacity-80 p-4 rounded-lg transition-all duration-300 hover:bg-gray-100 hover:shadow-inner hover:scale-101">
+                                <p class="text-sm font-medium text-gray-700 mb-2">Summary:</p>
+                                <p class="text-gray-600 whitespace-pre-wrap">{{ record.summary }}</p>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <p class="text-gray-600 text-center animate-fade-in">No summaries available yet.</p>
+            {% endif %}
+        </section>
+    </div>
+
+    <!-- Ripple Effect (Optional) -->
+    <script>
+        document.addEventListener('mousemove', (e) => {
+            const ripple = document.createElement('div');
+            ripple.className = 'ripple';
+            ripple.style.left = `${e.clientX}px`;
+            ripple.style.top = `${e.clientY}px`;
+            document.getElementById('ripple-bg').appendChild(ripple);
+            setTimeout(() => ripple.remove(), 1000);
+        });
+    </script>
+
+    <!-- Toggle Logic -->
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const uploadRadio = document.getElementById('upload-radio');
+            const textRadio = document.getElementById('text-radio');
+            const uploadSection = document.getElementById('upload-section');
+            const textSection = document.getElementById('text-section');
+
+            function toggleInput() {
+                if (uploadRadio.checked) {
+                    uploadSection.classList.remove('hidden');
+                    textSection.classList.add('hidden');
+                } else {
+                    textSection.classList.remove('hidden');
+                    uploadSection.classList.add('hidden');
+                }
+            }
+
+            uploadRadio.addEventListener('change', toggleInput);
+            textRadio.addEventListener('change', toggleInput);
+
+            toggleInput(); // Initial load
+        });
+    </script>
+</body>
+</html>
