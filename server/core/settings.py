@@ -1,5 +1,5 @@
 from pathlib import Path
-
+import os
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = 'your-secret-key'
@@ -14,6 +14,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'medical_app',
+     'insurance',
 ]
 
 MIDDLEWARE = [
@@ -52,6 +53,7 @@ DATABASES = {
         'NAME': BASE_DIR / 'db.sqlite3',
     }
 }
+
 
 STATIC_URL = '/static/'
 STATICFILES_DIRS = [BASE_DIR / 'medical_app' / 'static']
