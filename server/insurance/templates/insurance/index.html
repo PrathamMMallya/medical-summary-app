@@ -209,6 +209,18 @@
                     </form>
                 </div>
             </div>
+{% if insurance_summary %}
+<div class="col-12">
+    <div class="glass-card p-4 mb-4">
+        <h5 class="text-white">
+            <i class="fas fa-notes-medical me-2"></i>Generated Insurance Summary (from Report )
+        </h5>
+        <pre class="bg-white p-3 rounded text-dark" style="white-space: pre-wrap; font-size: 0.95rem;">
+{{ insurance_summary }}
+        </pre>
+    </div>
+</div>
+{% endif %}
 
 
         <!-- Query Response -->

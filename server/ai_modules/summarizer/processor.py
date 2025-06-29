@@ -3,21 +3,31 @@ import markdownify
 import torch
 import os
 
-# Path to local Pegasus model
-model_path = r"C:\Users\prath\Downloads\insurance\medical-summary-app\server\medical_app\pegasus"
+# Path to Pegasus model
+model_path = r"C:\Users\prath\Downloads\medical_summary_project\server\medical_app\pegasus"
 
-# Load tokenizer and model once
+# Load Pegasus model
 tokenizer = PegasusTokenizer.from_pretrained(model_path)
 model = PegasusForConditionalGeneration.from_pretrained(model_path).to(
     torch.device("cuda" if torch.cuda.is_available() else "cpu")
 )
 model.eval()
 
+# Detect insurance type from text
+def detect_insurance_type(text: str) -> str:
+    text_lower = text.lower()
+    if any(word in text_lower for word in ['hospital', 'treatment', 'diagnosis', 'symptom', 'fever', 'medicine', 'bp', 'diabetes']):
+        return 'health'
+    elif any(word in text_lower for word in ['vehicle', 'car', 'accident', 'rc', 'license', 'repair', 'service', 'claim']):
+        return 'vehicle'
+    elif any(word in text_lower for word in ['life insurance', 'term plan', 'lic', 'family protection', 'corpus', 'retirement', 'bmi', 'smoker']):
+        return 'life'
+    return 'unknown'
 
-# Summary generator function
+# Generate summary from just the record text
 def generate_summary(text, prompt):
     device = model.device
-    input_text = f"{prompt.strip()}\n\n{text.strip()}"
+    input_text = f"{text.strip()}"  # Only pass record content, NOT prompt
 
     inputs = tokenizer(
         input_text,
@@ -40,35 +50,44 @@ def generate_summary(text, prompt):
     output = tokenizer.decode(summary_ids[0], skip_special_tokens=True)
     return output.strip()
 
+# Remove unwanted instruction text from model output
+def clean_summary(summary: str) -> str:
+    prompt_keywords = [
+        "generate a structured summary", "based on the detected insurance type", "key details",
+        "this summary", "summarize", "given the following", "recommend", "include", "medical history",
+        "coverage preferences", "objectives", "for health", "for life", "for vehicle", "summary should"
+    ]
+    lines = summary.splitlines()
+    return "\n".join([
+        line.strip() for line in lines
+        if not any(kw in line.lower() for kw in prompt_keywords)
+    ]).strip()
 
-# Main processor
+# Main processing function
 def summarize_and_convert(text, record_id):
     cleaned_text = text.replace("<n>", "\n").strip()
+    insurance_type = detect_insurance_type(cleaned_text)
 
-    # Generate a unified insurance summary
-    insurance_prompt = (
-        "Summarize the following document to extract key insurance-related information. "
-        "If it's a health report, include age, medical conditions, treatments, and budget. "
-        "If it's about a vehicle, extract vehicle type, accident history, repairs, coverage preferences, and cost details."
-    )
-    summary_insurance = generate_summary(cleaned_text, insurance_prompt)
+    if insurance_type == "health":
+        prompt = "Summarize the patient's age, medical conditions, treatments, and any budget or financial limits."
+    elif insurance_type == "vehicle":
+        prompt = "Summarize the vehicle type, usage, any accidents or service history, and coverage preferences."
+    elif insurance_type == "life":
+        prompt = "Summarize age, family medical history, risk factors, and desired life coverage or protection goals."
+    else:
+        prompt = "Summarize the given insurance-related information in a clear and structured way."
 
-    # Remove any boilerplate pattern if accidentally retained
-    for unwanted_prefix in [
-        "Key details for health insurance", 
-        "summary should help an insurance recommender", 
-        "Summarize the following document"
-    ]:
-        if unwanted_prefix.lower() in summary_insurance.lower():
-            parts = summary_insurance.split("\n")
-            filtered = [line for line in parts if unwanted_prefix.lower() not in line.lower()]
-            summary_insurance = "\n".join(filtered).strip()
+    # Generate summary
+    summary_insurance = generate_summary(cleaned_text, prompt)
+    summary_insurance = clean_summary(summary_insurance)
 
-    # Generate Markdown version of the original report
+    # Convert full input to markdown
     markdown_version = markdownify.markdownify(cleaned_text, heading_style="ATX")
 
+    # Save markdown file
     os.makedirs("downloads", exist_ok=True)
     with open(f"downloads/record_{record_id}.md", "w", encoding="utf-8") as f:
         f.write(markdown_version)
 
-    return summary_insurance, markdown_version
+    return summary_insurance.replace("<n>", "\n").strip(), markdown_version.replace("<n>", "\n").strip()
+

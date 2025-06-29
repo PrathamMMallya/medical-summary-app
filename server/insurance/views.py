@@ -85,12 +85,11 @@ class DocumentUploadView(View):
         return redirect('insurance:index')
 
 class InsuranceQueryView(View):
-    """Handle insurance queries"""
+    """Handle insurance queries (GET shows summary from session if available)"""
 
     def get(self, request):
-        query_text = request.session.pop('insurance_query', None)
-
-        form = InsuranceQueryForm(initial={'query': query_text}) if query_text else InsuranceQueryForm()
+        query_text = request.session.get('insurance_query', '')
+        initial_form = InsuranceQueryForm(initial={'query': query_text}) if query_text else InsuranceQueryForm()
 
         documents = InsuranceDocument.objects.all()
         recent_queries = InsuranceQuery.objects.all()[:5]
@@ -99,13 +98,13 @@ class InsuranceQueryView(View):
             'documents': documents,
             'recent_queries': recent_queries,
             'upload_form': DocumentUploadForm(),
-            'query_form': form,
+            'query_form': initial_form,
+            'insurance_summary': query_text,
             'total_chunks': DocumentChunk.objects.count(),
             'total_documents': documents.count(),
         }
 
         return render(request, 'insurance/index.html', context)
-
     def post(self, request):
         form = InsuranceQueryForm(request.POST)
 
