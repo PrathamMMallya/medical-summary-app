@@ -5,70 +5,72 @@ from django.contrib import messages
 from django.core.files.storage import default_storage
 from django.core.files.base import ContentFile
 from django.views.decorators.csrf import csrf_exempt
-from django.utils.decorators import method_decorator
 from django.views import View
 import json
 import os
 import logging
 from pathlib import Path
-
-from .models import InsuranceDocument, DocumentChunk, InsuranceQuery
+from .models import InsuranceDocument, DocumentChunk, InsuranceQuery, INSURANCE_TYPES
 from .forms import DocumentUploadForm, InsuranceQueryForm
-
-# Import the RAG processor
-import sys
-sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'ai_modules'))
 from ai_modules.insurance_processor import InsuranceRAGProcessor
 
 logger = logging.getLogger(__name__)
 
 class InsuranceIndexView(View):
     """Main insurance app view"""
-    
-    def get(self, request):
-        documents = InsuranceDocument.objects.all()
-        recent_queries = InsuranceQuery.objects.all()[:5]
+    def get(self, request, insurance_type):
+        if insurance_type not in dict(INSURANCE_TYPES):
+            messages.error(request, 'Invalid insurance type.')
+            return redirect('insurance:index', insurance_type='health')
+        
+        documents = InsuranceDocument.objects.filter(insurance_type=insurance_type)
+        recent_queries = InsuranceQuery.objects.filter(insurance_type=insurance_type)[:5]
         
         context = {
             'documents': documents,
             'recent_queries': recent_queries,
-            'upload_form': DocumentUploadForm(),
-            'query_form': InsuranceQueryForm(),
-            'total_chunks': DocumentChunk.objects.count(),
+            'upload_form': DocumentUploadForm(initial={'insurance_type': insurance_type}),
+            'query_form': InsuranceQueryForm(insurance_type=insurance_type),
+            'total_chunks': DocumentChunk.objects.filter(insurance_type=insurance_type).count(),
             'total_documents': documents.count(),
+            'insurance_type': insurance_type,
         }
         return render(request, 'insurance/index.html', context)
 
 class DocumentUploadView(View):
     """Handle document upload and processing"""
-    
-    def post(self, request):
-        form = DocumentUploadForm(request.POST, request.FILES)
+    def post(self, request, insurance_type):
+        if insurance_type not in dict(INSURANCE_TYPES):
+            messages.error(request, 'Invalid insurance type.')
+            return redirect('insurance:index', insurance_type='health')
         
+        form = DocumentUploadForm(request.POST, request.FILES)
         if form.is_valid():
             try:
                 uploaded_file = request.FILES['document']
                 title = form.cleaned_data['title']
+                form_insurance_type = form.cleaned_data['insurance_type']
                 
-                # Validate file type
+                if form_insurance_type != insurance_type:
+                    messages.error(request, 'Insurance type mismatch.')
+                    return redirect('insurance:index', insurance_type=insurance_type)
+                
                 if not uploaded_file.name.lower().endswith('.pdf'):
                     messages.error(request, 'Only PDF files are allowed.')
-                    return redirect('insurance:index')
+                    return redirect('insurance:index', insurance_type=insurance_type)
                 
-                # Save file
-                file_name = f"insurance_docs/{uploaded_file.name}"
+                file_name = f"insurance_docs/{insurance_type}/{uploaded_file.name}"
                 file_path = default_storage.save(file_name, ContentFile(uploaded_file.read()))
                 full_file_path = default_storage.path(file_path)
                 
-                # Create document record
                 document = InsuranceDocument.objects.create(
                     title=title,
                     file_path=full_file_path,
-                    original_filename=uploaded_file.name
+                    original_filename=uploaded_file.name,
+                    insurance_type=insurance_type
                 )
                 
-                # Process document in background (you might want to use Celery for this)
-                processor = InsuranceRAGProcessor()
+                processor = InsuranceRAGProcessor(insurance_type=insurance_type)
                 success = processor.process_document(full_file_path, document.id)
                 
                 if success:
@@ -82,93 +84,107 @@ class DocumentUploadView(View):
         else:
             messages.error(request, 'Invalid form data.')
         
-        return redirect('insurance:index')
+        return redirect('insurance:index', insurance_type=insurance_type)
 
+# insurance/views.py (update InsuranceQueryView.post)
 class InsuranceQueryView(View):
     """Handle insurance queries"""
-
-    def get(self, request):
+    def get(self, request, insurance_type):
+        if insurance_type not in dict(INSURANCE_TYPES):
+            messages.error(request, 'Invalid insurance type.')
+            return redirect('insurance:index', insurance_type='health')
+        
         query_text = request.session.pop('insurance_query', None)
-
-        form = InsuranceQueryForm(initial={'query': query_text}) if query_text else InsuranceQueryForm()
-
-        documents = InsuranceDocument.objects.all()
-        recent_queries = InsuranceQuery.objects.all()[:5]
-
+        form = InsuranceQueryForm(initial={'query': query_text, 'insurance_type': insurance_type}, insurance_type=insurance_type)
+        
+        documents = InsuranceDocument.objects.filter(insurance_type=insurance_type)
+        recent_queries = InsuranceQuery.objects.filter(insurance_type=insurance_type)[:5]
+        
         context = {
             'documents': documents,
             'recent_queries': recent_queries,
-            'upload_form': DocumentUploadForm(),
+            'upload_form': DocumentUploadForm(initial={'insurance_type': insurance_type}),
             'query_form': form,
-            'total_chunks': DocumentChunk.objects.count(),
+            'total_chunks': DocumentChunk.objects.filter(insurance_type=insurance_type).count(),
             'total_documents': documents.count(),
+            'insurance_type': insurance_type,
         }
-
         return render(request, 'insurance/index.html', context)
 
-    def post(self, request):
-        form = InsuranceQueryForm(request.POST)
-
+    def post(self, request, insurance_type):
+        if insurance_type not in dict(INSURANCE_TYPES):
+            return JsonResponse({'success': False, 'error': 'Invalid insurance type.'})
+        
+        form = InsuranceQueryForm(request.POST, insurance_type=insurance_type)
         if form.is_valid():
             try:
                 query_text = form.cleaned_data['query']
-
-                if not DocumentChunk.objects.exists():
+                form_insurance_type = form.cleaned_data['insurance_type']
+                
+                if form_insurance_type != insurance_type:
+                    return JsonResponse({'success': False, 'error': 'Insurance type mismatch.'})
+                
+                if not DocumentChunk.objects.filter(insurance_type=insurance_type).exists():
                     return JsonResponse({
                         'success': False,
-                        'error': 'No processed documents found. Please upload and process documents first.'
+                        'error': f'No processed {insurance_type} documents found. Please upload and process documents first.'
                     })
-
-                processor = InsuranceRAGProcessor()
+                
+                processor = InsuranceRAGProcessor(insurance_type=insurance_type)
                 success = processor.initialize_system()
-
+                
                 if not success:
                     return JsonResponse({
                         'success': False,
-                        'error': 'Failed to initialize RAG system.'
+                        'error': f'Failed to initialize {insurance_type} RAG system. Please ensure the system is properly configured.'
                     })
-
+                
                 response = processor.query_insurance(query_text)
-
+                
                 return JsonResponse({
                     'success': True,
                     'response': response,
                     'query': query_text
                 })
-
             except Exception as e:
-                logger.error(f"Error processing query: {e}")
+                logger.error(f"Error processing {insurance_type} query: {e}")
                 return JsonResponse({
                     'success': False,
-                    'error': f'Error processing query: {str(e)}'
+                    'error': f'Error processing {insurance_type} query: {str(e)}'
                 })
         else:
             return JsonResponse({
                 'success': False,
                 'error': 'Invalid query form: ' + str(form.errors)
             })
-
-
 @csrf_exempt
-def clear_database(request):
-    """Clear all data from database"""
+def clear_database(request, insurance_type):
+    """Clear all data for a specific insurance type"""
+    if insurance_type not in dict(INSURANCE_TYPES):
+        messages.error(request, 'Invalid insurance type.')
+        return redirect('insurance:index', insurance_type='health')
+    
     if request.method == 'POST':
         try:
-            success = InsuranceRAGProcessor.clear_all_data()
+            success = InsuranceRAGProcessor.clear_all_data(insurance_type=insurance_type)
             if success:
-                messages.success(request, 'All data cleared successfully!')
+                messages.success(request, f'All {insurance_type} data cleared successfully!')
             else:
-                messages.error(request, 'Failed to clear data.')
+                messages.error(request, f'Failed to clear {insurance_type} data.')
         except Exception as e:
-            logger.error(f"Error clearing database: {e}")
-            messages.error(request, f'Error clearing database: {str(e)}')
+            logger.error(f"Error clearing {insurance_type} database: {e}")
+            messages.error(request, f'Error clearing {insurance_type} database: {str(e)}')
     
-    return redirect('insurance:index')
+    return redirect('insurance:index', insurance_type=insurance_type)
 
-def document_detail(request, document_id):
+def document_detail(request, insurance_type, document_id):
     """Show document details and chunks"""
-    document = get_object_or_404(InsuranceDocument, id=document_id)
-    chunks = DocumentChunk.objects.filter(document=document)
+    if insurance_type not in dict(INSURANCE_TYPES):
+        messages.error(request, 'Invalid insurance type.')
+        return redirect('insurance:index', insurance_type='health')
+    
+    document = get_object_or_404(InsuranceDocument, id=document_id, insurance_type=insurance_type)
+    chunks = DocumentChunk.objects.filter(document=document, insurance_type=insurance_type)
     
     context = {
         'document': document,
@@ -177,64 +193,73 @@ def document_detail(request, document_id):
             'policy': chunks.filter(strategy='policy').count(),
             'semantic': chunks.filter(strategy='semantic').count(),
             'header': chunks.filter(strategy='header').count(),
-        }
+        },
+        'insurance_type': insurance_type,
     }
     return render(request, 'insurance/document_detail.html', context)
 
-def delete_document(request, document_id):
+def delete_document(request, insurance_type, document_id):
     """Delete a document and its chunks"""
+    if insurance_type not in dict(INSURANCE_TYPES):
+        messages.error(request, 'Invalid insurance type.')
+        return redirect('insurance:index', insurance_type='health')
+    
     if request.method == 'POST':
-        document = get_object_or_404(InsuranceDocument, id=document_id)
-        
+        document = get_object_or_404(InsuranceDocument, id=document_id, insurance_type=insurance_type)
         try:
-            # Delete file from storage
             if os.path.exists(document.file_path):
                 os.remove(document.file_path)
-            
-            # Delete document (chunks will be deleted due to CASCADE)
             document_title = document.title
             document.delete()
-            
             messages.success(request, f'Document "{document_title}" deleted successfully!')
-            
         except Exception as e:
             logger.error(f"Error deleting document: {e}")
             messages.error(request, f'Error deleting document: {str(e)}')
     
-    return redirect('insurance:index')
+    return redirect('insurance:index', insurance_type=insurance_type)
 
-def query_history(request):
+def query_history(request, insurance_type):
     """Show query history"""
-    queries = InsuranceQuery.objects.all()
+    if insurance_type not in dict(INSURANCE_TYPES):
+        messages.error(request, 'Invalid insurance type.')
+        return redirect('insurance:index', insurance_type='health')
+    
+    queries = InsuranceQuery.objects.filter(insurance_type=insurance_type)
     context = {
-        'queries': queries
+        'queries': queries,
+        'insurance_type': insurance_type,
     }
     return render(request, 'insurance/query_history.html', context)
 
-def reprocess_document(request, document_id):
+def reprocess_document(request, insurance_type, document_id):
     """Reprocess a document"""
+    if insurance_type not in dict(INSURANCE_TYPES):
+        messages.error(request, 'Invalid insurance type.')
+        return redirect('insurance:index', insurance_type='health')
+    
     if request.method == 'POST':
-        document = get_object_or_404(InsuranceDocument, id=document_id)
-        
+        document = get_object_or_404(InsuranceDocument, id=document_id, insurance_type=insurance_type)
         try:
-            processor = InsuranceRAGProcessor()
+            processor = InsuranceRAGProcessor(insurance_type=insurance_type)
             success = processor.process_document(document.file_path, document.id)
-            
             if success:
                 messages.success(request, f'Document "{document.title}" reprocessed successfully!')
             else:
                 messages.error(request, 'Failed to reprocess document.')
-                
         except Exception as e:
             logger.error(f"Error reprocessing document: {e}")
             messages.error(request, f'Error reprocessing document: {str(e)}')
     
-    return redirect('insurance:document_detail', document_id=document_id)
+    return redirect('insurance:document_detail', insurance_type=insurance_type, document_id=document_id)
 
-def export_chunks(request, document_id):
+def export_chunks(request, insurance_type, document_id):
     """Export document chunks as JSON"""
-    document = get_object_or_404(InsuranceDocument, id=document_id)
-    chunks = DocumentChunk.objects.filter(document=document)
+    if insurance_type not in dict(INSURANCE_TYPES):
+        messages.error(request, 'Invalid insurance type.')
+        return redirect('insurance:index', insurance_type='health')
+    
+    document = get_object_or_404(InsuranceDocument, id=document_id, insurance_type=insurance_type)
+    chunks = DocumentChunk.objects.filter(document=document, insurance_type=insurance_type)
     
     chunks_data = []
     for chunk in chunks:
@@ -243,7 +268,8 @@ def export_chunks(request, document_id):
             'content': chunk.content,
             'strategy': chunk.strategy,
             'metadata': chunk.metadata,
-            'created_at': chunk.created_at.isoformat()
+            'created_at': chunk.created_at.isoformat(),
+            'insurance_type': chunk.insurance_type,
         })
     
     response = HttpResponse(
@@ -253,11 +279,14 @@ def export_chunks(request, document_id):
     response['Content-Disposition'] = f'attachment; filename="{document.title}_chunks.json"'
     return response
 
-def system_status(request):
+def system_status(request, insurance_type):
     """Show system status and statistics"""
+    if insurance_type not in dict(INSURANCE_TYPES):
+        messages.error(request, 'Invalid insurance type.')
+        return redirect('insurance:index', insurance_type='health')
+    
     try:
-        # Test Ollama connection
-        processor = InsuranceRAGProcessor()
+        processor = InsuranceRAGProcessor(insurance_type=insurance_type)
         ollama_status = True
         try:
             test_embedding = processor.embeddings.embed_query("test")
@@ -267,23 +296,24 @@ def system_status(request):
         
         context = {
             'ollama_status': ollama_status,
-            'total_documents': InsuranceDocument.objects.count(),
-            'processed_documents': InsuranceDocument.objects.filter(processed=True).count(),
-            'total_chunks': DocumentChunk.objects.count(),
-            'total_queries': InsuranceQuery.objects.count(),
+            'total_documents': InsuranceDocument.objects.filter(insurance_type=insurance_type).count(),
+            'processed_documents': InsuranceDocument.objects.filter(insurance_type=insurance_type, processed=True).count(),
+            'total_chunks': DocumentChunk.objects.filter(insurance_type=insurance_type).count(),
+            'total_queries': InsuranceQuery.objects.filter(insurance_type=insurance_type).count(),
             'chunk_strategies': {
-                'policy': DocumentChunk.objects.filter(strategy='policy').count(),
-                'semantic': DocumentChunk.objects.filter(strategy='semantic').count(),
-                'header': DocumentChunk.objects.filter(strategy='header').count(),
+                'policy': DocumentChunk.objects.filter(insurance_type=insurance_type, strategy='policy').count(),
+                'semantic': DocumentChunk.objects.filter(insurance_type=insurance_type, strategy='semantic').count(),
+                'header': DocumentChunk.objects.filter(insurance_type=insurance_type, strategy='header').count(),
             },
-            'recent_queries': InsuranceQuery.objects.order_by('-query_time')[:10],
+            'recent_queries': InsuranceQuery.objects.filter(insurance_type=insurance_type).order_by('-query_time')[:10],
+            'insurance_type': insurance_type,
         }
-        
     except Exception as e:
         logger.error(f"Error getting system status: {e}")
         context = {
             'error': str(e),
             'ollama_status': False,
+            'insurance_type': insurance_type,
         }
     
     return render(request, 'insurance/system_status.html', context)

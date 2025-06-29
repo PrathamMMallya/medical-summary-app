@@ -4,7 +4,7 @@ import torch
 import os
 
 # Path to local Pegasus model
-model_path = r"C:\Users\prath\Downloads\insurance\medical-summary-app\server\medical_app\pegasus"
+model_path = r"C:\Users\tjsre\Desktop\projects\practice\ml\navy_project\secret\models\pegasus"
 
 # Load tokenizer and model once
 tokenizer = PegasusTokenizer.from_pretrained(model_path)
