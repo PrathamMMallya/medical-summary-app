@@ -14,23 +14,38 @@ from .models import InsuranceDocument, DocumentChunk, InsuranceQuery, INSURANCE_
 from .forms import DocumentUploadForm, InsuranceQueryForm
 from ai_modules.insurance_processor import InsuranceRAGProcessor
 
+from django.views import View
+from django.shortcuts import render, redirect
+from django.http import JsonResponse
+from django.contrib import messages
+from .models import InsuranceDocument, DocumentChunk, InsuranceQuery, INSURANCE_TYPES
+from .forms import DocumentUploadForm, InsuranceQueryForm
+from ai_modules.insurance_processor import InsuranceRAGProcessor
+import logging
+import os
+from django.core.files.storage import default_storage
+from django.core.files.base import ContentFile
+from django.conf import settings
+
 logger = logging.getLogger(__name__)
 
 class InsuranceIndexView(View):
-    """Main insurance app view"""
     def get(self, request, insurance_type):
         if insurance_type not in dict(INSURANCE_TYPES):
             messages.error(request, 'Invalid insurance type.')
             return redirect('insurance:index', insurance_type='health')
         
         documents = InsuranceDocument.objects.filter(insurance_type=insurance_type)
-        recent_queries = InsuranceQuery.objects.filter(insurance_type=insurance_type)[:5]
+        recent_queries = InsuranceQuery.objects.filter(insurance_type=insurance_type).order_by('-query_time')[:5]
         
         context = {
             'documents': documents,
             'recent_queries': recent_queries,
-            'upload_form': DocumentUploadForm(initial={'insurance_type': insurance_type}),
-            'query_form': InsuranceQueryForm(insurance_type=insurance_type),
+            'upload_form': DocumentUploadForm(initial={'insurance_type': insurance_type}, insurance_type=insurance_type),
+            'query_form': InsuranceQueryForm(initial={
+                'query': request.session.get('insurance_query', ''),
+                'insurance_type': insurance_type
+            }, insurance_type=insurance_type),
             'total_chunks': DocumentChunk.objects.filter(insurance_type=insurance_type).count(),
             'total_documents': documents.count(),
             'insurance_type': insurance_type,
@@ -88,6 +103,77 @@ class DocumentUploadView(View):
 
 # insurance/views.py (update InsuranceQueryView.post)
 class InsuranceQueryView(View):
+    def get(self, request, insurance_type):
+        if insurance_type not in dict(INSURANCE_TYPES):
+            messages.error(request, 'Invalid insurance type.')
+            return redirect('insurance:index', insurance_type='health')
+        
+        query_text = request.session.pop('insurance_query', None)
+        form = InsuranceQueryForm(
+            initial={'query': query_text, 'insurance_type': insurance_type},
+            insurance_type=insurance_type
+        )
+        
+        documents = InsuranceDocument.objects.filter(insurance_type=insurance_type)
+        recent_queries = InsuranceQuery.objects.filter(insurance_type=insurance_type).order_by('-query_time')[:5]
+        
+        context = {
+            'documents': documents,
+            'recent_queries': recent_queries,
+            'upload_form': DocumentUploadForm(initial={'insurance_type': insurance_type}, insurance_type=insurance_type),
+            'query_form': form,
+            'total_chunks': DocumentChunk.objects.filter(insurance_type=insurance_type).count(),
+            'total_documents': documents.count(),
+            'insurance_type': insurance_type,
+        }
+        return render(request, 'insurance/index.html', context)
+
+    def post(self, request, insurance_type):
+        if insurance_type not in dict(INSURANCE_TYPES):
+            return JsonResponse({'success': False, 'error': 'Invalid insurance type.'})
+        
+        form = InsuranceQueryForm(request.POST, insurance_type=insurance_type)
+        if form.is_valid():
+            try:
+                query_text = form.cleaned_data['query']
+                form_insurance_type = form.cleaned_data['insurance_type']
+                
+                if form_insurance_type != insurance_type:
+                    return JsonResponse({'success': False, 'error': 'Insurance type mismatch.'})
+                
+                if not DocumentChunk.objects.filter(insurance_type=insurance_type).exists():
+                    return JsonResponse({
+                        'success': False,
+                        'error': f'No processed {insurance_type} documents found. Please upload and process documents first.'
+                    })
+                
+                processor = InsuranceRAGProcessor(insurance_type=insurance_type)
+                success = processor.initialize_system()
+                
+                if not success:
+                    return JsonResponse({
+                        'success': False,
+                        'error': f'Failed to initialize {insurance_type} RAG system.'
+                    })
+                
+                response = processor.query_insurance(query_text)
+                
+                return JsonResponse({
+                    'success': True,
+                    'response': response,
+                    'query': query_text
+                })
+            except Exception as e:
+                logger.error(f"Error processing {insurance_type} query: {e}")
+                return JsonResponse({
+                    'success': False,
+                    'error': f'Error processing {insurance_type} query: {str(e)}'
+                })
+        else:
+            return JsonResponse({
+                'success': False,
+                'error': 'Invalid query form: ' + str(form.errors)
+            })
     """Handle insurance queries"""
     def get(self, request, insurance_type):
         if insurance_type not in dict(INSURANCE_TYPES):
@@ -278,6 +364,7 @@ def export_chunks(request, insurance_type, document_id):
     )
     response['Content-Disposition'] = f'attachment; filename="{document.title}_chunks.json"'
     return response
+
 
 def system_status(request, insurance_type):
     """Show system status and statistics"""

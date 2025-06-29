@@ -1,3 +1,4 @@
+<!-- medical_app/templates/index.html -->
 {% load static %}
 <!DOCTYPE html>
 <html lang="en">
@@ -15,7 +16,7 @@
     <!-- Header -->
     <header class="mb-8 text-center">
       <h1 class="text-5xl font-extrabold text-gray-800 animate-gradient-text">Report Summarizer</h1>
-      <p class="text-gray-600 mt-3 text-lg animate-fade-in">Upload any report for a smart summary</p>
+      <p class="text-gray-600 mt-3 text-lg animate-fade-in">Upload or type a report for a smart summary</p>
     </header>
 
     <!-- Error Message -->
@@ -52,17 +53,22 @@
           <label for="patient_name" class="block text-sm font-medium text-gray-700">Uploader Name</label>
           <input type="text" name="patient_name" id="patient_name" required class="mt-1 block w-full border-gray-300 rounded-lg shadow-sm focus:ring-blue-400 focus:border-blue-400 sm:text-sm p-4 transition-all duration-300 hover:shadow-glow hover:scale-101 bg-white bg-opacity-50 backdrop-blur-sm" />
         </div>
-
+        <div>
+          <label for="insurance_type" class="block text-sm font-medium text-gray-700">Insurance Type</label>
+          <select name="insurance_type" id="insurance_type" required class="mt-1 block w-full border-gray-300 rounded-lg shadow-sm focus:ring-blue-400 focus:border-blue-400 sm:text-sm p-4 transition-all duration-300 hover:shadow-glow hover:scale-101 bg-white bg-opacity-50 backdrop-blur-sm">
+            {% for type, name in insurance_types %}
+            <option value="{{ type }}">{{ name }}</option>
+            {% endfor %}
+          </select>
+        </div>
         <div id="upload-section" class="input-section">
           <label for="report_file" class="block text-sm font-medium text-gray-700">Upload PDF or Word File</label>
           <input type="file" name="report_file" id="report_file" accept=".pdf,.docx" class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-3 file:px-5 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-100 file:text-blue-700 hover:file:bg-blue-200 transition-all duration-300 hover:shadow-glow bg-white bg-opacity-50 backdrop-blur-sm" />
         </div>
-
         <div id="text-section" class="input-section hidden">
           <label for="report_text" class="block text-sm font-medium text-gray-700">Insurance Report Text</label>
           <textarea name="report_text" id="report_text" rows="5" placeholder="Enter insurance report..." class="mt-1 block w-full border-gray-300 rounded-lg shadow-sm focus:ring-blue-400 focus:border-blue-400 sm:text-sm p-4 transition-all duration-300 hover:shadow-glow hover:scale-101 bg-white bg-opacity-50 backdrop-blur-sm"></textarea>
         </div>
-
         <div class="text-center">
           <button type="submit" class="inline-flex items-center px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2 transition-all duration-300 transform hover:scale-110 hover:rotate-2 hover:shadow-glow">Generate Summary</button>
         </div>
@@ -77,8 +83,8 @@
         {% for record in records %}
         <div class="record bg-white bg-opacity-90 backdrop-blur-md shadow-lg rounded-xl p-6 transition-all duration-300 hover:shadow-2xl hover:-translate-y-2 hover:scale-102">
           <div class="flex justify-between items-center mb-4">
-            <h3 class="text-lg font-medium text-gray-800">{{ record.patient_name }} — {{ record.uploaded_at|date:"Y-m-d H:i" }}</h3>
-            <a href="{% url 'download_markdown' record.id %}" class="text-blue-600 hover:text-blue-800 text-sm font-medium transition-colors duration-300 hover:underline hover:scale-105">Download Markdown</a>
+            <h3 class="text-lg font-medium text-gray-800">{{ record.patient_name }} — {{ record.insurance_type|title }} — {{ record.uploaded_at|date:"Y-m-d H:i" }}</h3>
+            <a href="{% url 'medical_app:download_markdown' record.id %}" class="text-blue-600 hover:text-blue-800 text-sm font-medium transition-colors duration-300 hover:underline hover:scale-105">Download Markdown</a>
           </div>
           <div class="bg-gray-50 bg-opacity-80 p-4 rounded-lg transition-all duration-300 hover:bg-gray-100 hover:shadow-inner hover:scale-101">
             <p class="text-sm font-medium text-gray-700 mb-2">Report Summary:</p>

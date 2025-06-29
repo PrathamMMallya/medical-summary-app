@@ -87,50 +87,242 @@
     </style>
 </head>
 <body>
-    {% extends 'base.html' %}
+<!-- insurance/templates/insurance/index.html -->
+<!-- insurance/templates/insurance/index.html -->
+<!-- insurance/templates/insurance/index.html -->
+{% extends 'base.html' %}
+{% load static %}  <!-- Add this if any static tags are used directly -->
 {% block content %}
-<h1>{{ insurance_type|title }} Insurance Management</h1>
+<div class="row">
+    <!-- Back Button -->
+    <a href="{% url 'medical_app:index' %}" class="btn btn-custom mb-3">
+        <i class="fas fa-arrow-left me-2"></i>Back to Report Summarizer
+    </a>
 
-<h2>Upload {{ insurance_type|title }} Document</h2>
-<form method="post" enctype="multipart/form-data" action="{% url 'insurance:upload_document' insurance_type=insurance_type %}">
-    {% csrf_token %}
-    {{ upload_form.as_p }}
-    <button type="submit">Upload Document</button>
-</form>
+    <!-- Upload Section -->
+    <div class="col-md-6">
+        <div class="glass-card p-4 mb-4">
+            <h4 class="text-white mb-3">
+                <i class="fas fa-upload me-2"></i>Upload {{ insurance_type|title }} Document
+            </h4>
+            <form method="post" action="{% url 'insurance:upload_document' insurance_type=insurance_type %}" enctype="multipart/form-data">
+                {% csrf_token %}
+                <div class="mb-3">
+                    <label class="form-label text-white">{{ upload_form.title.label }}</label>
+                    {{ upload_form.title }}
+                </div>
+                <div class="mb-3">
+                    <label class="form-label text-white">{{ upload_form.document.label }}</label>
+                    {{ upload_form.document }}
+                    <small class="form-text text-light">Max file size: 50MB</small>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label text-white">{{ upload_form.insurance_type.label }}</label>
+                    {{ upload_form.insurance_type }}
+                </div>
+                <button type="submit" class="btn btn-custom">
+                    <i class="fas fa-upload me-2"></i>Upload & Process
+                </button>
+            </form>
+        </div>
+    </div>
 
-<h2>{{ insurance_type|title }} Query</h2>
-<form method="post" action="{% url 'insurance:query' insurance_type=insurance_type %}" id="query-form">
-    {% csrf_token %}
-    {{ query_form.as_p }}
-    <button type="submit">Submit Query</button>
-</form>
+    <!-- Query Section -->
+    <div class="col-md-6">
+        <div class="glass-card p-4 mb-4">
+            <h4 class="text-white mb-3">
+                <i class="fas fa-search me-2"></i>Ask {{ insurance_type|title }} Insurance Question
+            </h4>
+            <form id="queryForm" method="post" action="{% url 'insurance:query' insurance_type=insurance_type %}">
+                {% csrf_token %}
+                <div class="mb-3">
+                    <label for="{{ query_form.query.id_for_label }}" class="form-label text-white">{{ query_form.query.label }}</label>
+                    {{ query_form.query }}
+                    <small class="form-text text-light">{{ query_form.query.help_text }}</small>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label text-white">{{ query_form.insurance_type.label }}</label>
+                    {{ query_form.insurance_type }}
+                </div>
+                <button type="submit" class="btn btn-custom">
+                    <i class="fas fa-brain me-2"></i>Get Recommendations
+                </button>
+                <div class="loading-spinner mt-2" style="display: none;">
+                    <div class="spinner-border text-light" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <span class="text-white ms-2">Processing your query...</span>
+                </div>
+            </form>
+        </div>
+    </div>
 
-<h2>Uploaded {{ insurance_type|title }} Documents</h2>
-<ul>
-    {% for document in documents %}
-    <li>
-        <a href="{% url 'insurance:document_detail' insurance_type=insurance_type document_id=document.id %}">{{ document.title }}</a>
-        (Uploaded: {{ document.uploaded_at|date:"Y-m-d H:i" }})
-    </li>
-    {% empty %}
-    <li>No {{ insurance_type }} documents uploaded yet.</li>
-    {% endfor %}
-</ul>
+    <!-- Query Response -->
+    <div id="queryResponse" style="display: none;"></div>
 
-<h2>Recent {{ insurance_type|title }} Queries</h2>
-<ul>
-    {% for query in recent_queries %}
-    <li>{{ query.query_text|truncatechars:50 }} ({{ query.query_time|date:"Y-m-d H:i" }})</li>
-    {% empty %}
-    <li>No recent {{ insurance_type }} queries.</li>
-    {% endfor %}
-</ul>
+    <!-- Statistics Cards -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card stats-card">
+                <div class="card-body text-center">
+                    <i class="fas fa-file-pdf fa-2x text-primary mb-2"></i>
+                    <h5>{{ total_documents }}</h5>
+                    <p class="text-muted mb-0">{{ insurance_type|title }} Documents</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card stats-card">
+                <div class="card-body text-center">
+                    <i class="fas fa-puzzle-piece fa-2x text-success mb-2"></i>
+                    <h5>{{ total_chunks }}</h5>
+                    <p class="text-muted mb-0">{{ insurance_type|title }} Chunks</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card stats-card">
+                <div class="card-body text-center">
+                    <i class="fas fa-question-circle fa-2x text-info mb-2"></i>
+                    <h5>{{ recent_queries|length }}</h5>
+                    <p class="text-muted mb-0">Recent {{ insurance_type|title }} Queries</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card stats-card">
+                <div class="card-body text-center">
+                    <form method="post" action="{% url 'insurance:clear_database' insurance_type=insurance_type %}" style="display: inline;">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-danger-custom btn-sm" 
+                                onclick="return confirm('Are you sure you want to clear all {{ insurance_type }} data?')">
+                            <i class="fas fa-trash me-1"></i>Clear All
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
 
-<p>Total {{ insurance_type|title }} Documents: {{ total_documents }}</p>
-<p>Total {{ insurance_type|title }} Chunks: {{ total_chunks }}</p>
+    <!-- Documents List -->
+    <div class="row">
+        <div class="col-12">
+            <div class="glass-card p-4">
+                <h4 class="text-white mb-3">
+                    <i class="fas fa-folder me-2"></i>Uploaded {{ insurance_type|title }} Documents
+                </h4>
+                {% if documents %}
+                    <div class="row">
+                        {% for doc in documents %}
+                            <div class="col-md-6 mb-3">
+                                <div class="card document-card">
+                                    <div class="card-body">
+                                        <h6 class="card-title">{{ doc.title }}</h6>
+                                        <p class="card-text text-muted small">
+                                            <i class="fas fa-file"></i> {{ doc.original_filename }}<br>
+                                            <i class="fas fa-clock"></i> {{ doc.uploaded_at|date:"M d, Y H:i" }}<br>
+                                            <i class="fas fa-puzzle-piece"></i> {{ doc.total_chunks }} chunks
+                                            {% if doc.processed %}
+                                                <span class="badge bg-success">Processed</span>
+                                            {% else %}
+                                                <span class="badge bg-warning">Processing...</span>
+                                            {% endif %}
+                                        </p>
+                                        <div class="btn-group btn-group-sm">
+                                            <a href="{% url 'insurance:document_detail' insurance_type=insurance_type document_id=doc.id %}" 
+                                               class="btn btn-outline-primary">
+                                                <i class="fas fa-eye"></i> View
+                                            </a>
+                                            <a href="{% url 'insurance:export_chunks' insurance_type=insurance_type document_id=doc.id %}" 
+                                               class="btn btn-outline-success">
+                                                <i class="fas fa-download"></i> Export
+                                            </a>
+                                            <form method="post" action="{% url 'insurance:delete_document' insurance_type=insurance_type document_id=doc.id %}" 
+                                                  style="display: inline;">
+                                                {% csrf_token %}
+                                                <button type="submit" class="btn btn-outline-danger"
+                                                        onclick="return confirm('Delete this document?')">
+                                                    <i class="fas fa-trash"></i>
+                                                </button>
+                                            </form>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <div class="text-center text-white">
+                        <i class="fas fa-folder-open fa-3x mb-3 opacity-50"></i>
+                        <p>No {{ insurance_type|title }} documents uploaded yet. Upload your first insurance document to get started!</p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
 
-<a href="{% url 'insurance:query_history' insurance_type=insurance_type %}">View {{ insurance_type|title }} Query History</a>
-<a href="{% url 'insurance:system_status' insurance_type=insurance_type %}">View {{ insurance_type|title }} System Status</a>
+<script>
+    document.getElementById('queryForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const form = e.target;
+        const formData = new FormData(form);
+        const loadingSpinner = document.querySelector('.loading-spinner');
+        const responseDiv = document.getElementById('queryResponse');
+        const submitBtn = form.querySelector('button[type="submit"]');
+        
+        loadingSpinner.style.display = 'block';
+        submitBtn.disabled = true;
+        responseDiv.style.display = 'none';
+        
+        try {
+            const response = await fetch('{% url "insurance:query" insurance_type=insurance_type %}', {
+                method: 'POST',
+                body: formData,
+                headers: {
+                    'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                }
+            });
+            const data = await response.json();
+            
+            if (data.success) {
+                responseDiv.innerHTML = `
+                    <div class="query-response">
+                        <h5><i class="fas fa-robot me-2"></i>{{ insurance_type|title }} Insurance Recommendations</h5>
+                        <div class="mt-3">
+                            <strong>Your Query:</strong>
+                            <p class="text-muted">${data.query}</p>
+                        </div>
+                        <div class="mt-3">
+                            <strong>Our Recommendations:</strong>
+                            <div class="mt-2" style="white-space: pre-line;">${data.response}</div>
+                        </div>
+                    </div>
+                `;
+                responseDiv.style.display = 'block';
+            } else {
+                responseDiv.innerHTML = `
+                    <div class="alert alert-danger">
+                        <i class="fas fa-exclamation-triangle me-2"></i>
+                        ${data.error}
+                    </div>
+                `;
+                responseDiv.style.display = 'block';
+            }
+        } catch (error) {
+            responseDiv.innerHTML = `
+                <div class="alert alert-danger">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    Error processing query: ${error.message}
+                </div>
+            `;
+            responseDiv.style.display = 'block';
+        } finally {
+            loadingSpinner.style.display = 'none';
+            submitBtn.disabled = false;
+        }
+    });
+</script>
 {% endblock %}
     <!-- Navigation -->
     <nav class="navbar navbar-expand-lg navbar-dark glass-card mb-4">
